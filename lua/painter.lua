@@ -5,7 +5,12 @@
 -- > 1. Rename it to "Painter" or painter.nvim
 -- > 2. Add support for painting the character under the cursor if not in visual selection mode.
 -- > 3. Add a command to select different brushes (colours)
+-- ...!
+-- > Make the Paint command work so that I can select a visual block and do :'<,'>Paint
 
+-- Neovim plugin for painting text with different colored brushes
+
+-- painter.nvim
 -- Neovim plugin for painting text with different colored brushes
 
 local M = {}
@@ -134,18 +139,34 @@ local function paint_region(selection, bufnr)
 end
 
 -- Paint the current visual selection or character under cursor
-function M.paint()
-  local mode = vim.fn.mode()
+function M.paint(line1, line2)
   local selection
 
-  if mode == 'v' or mode == 'V' or mode == '\22' then -- \22 is Ctrl-V
-    -- Visual mode - paint selection
-    selection = get_visual_selection()
-    print("Painted selection with " .. current_brush .. " brush!")
+  if line1 and line2 then
+    -- Called with range (e.g., :'<,'>Paint)
+    local start_pos = vim.fn.getpos("'<")
+    local end_pos = vim.fn.getpos("'>")
+
+    selection = {
+      start_line = start_pos[2] - 1, -- Convert to 0-indexed
+      start_col = start_pos[3] - 1,
+      end_line = end_pos[2] - 1,
+      end_col = end_pos[3]
+    }
+    print("Painted range with " .. current_brush .. " brush!")
   else
-    -- Normal mode - paint character under cursor
-    selection = get_cursor_position()
-    print("Painted character with " .. current_brush .. " brush!")
+    -- Called without range - check current mode
+    local mode = vim.fn.mode()
+
+    if mode == 'v' or mode == 'V' or mode == '\22' then -- \22 is Ctrl-V
+      -- Visual mode - paint selection
+      selection = get_visual_selection()
+      print("Painted selection with " .. current_brush .. " brush!")
+    else
+      -- Normal mode - paint character under cursor
+      selection = get_cursor_position()
+      print("Painted character with " .. current_brush .. " brush!")
+    end
   end
 
   paint_region(selection)
@@ -264,7 +285,10 @@ function M.setup(opts)
   setup_highlights()
 
   -- Create user commands
-  vim.api.nvim_create_user_command('Paint', M.paint, {
+  vim.api.nvim_create_user_command('Paint', function(opts)
+    M.paint(opts.line1, opts.line2)
+  end, {
+    range = true,
     desc = 'Paint the current visual selection or character under cursor'
   })
 
