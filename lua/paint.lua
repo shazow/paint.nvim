@@ -1,66 +1,61 @@
--- painter.nvim - A simple plugin to paint visual selections with background colors
 local M = {}
 
 -- Default brushes (colors)
 local default_brushes = {
-  { name = "Red", bg = "#ff6b6b" },
-  { name = "Blue", bg = "#4ecdc4" },
-  { name = "Green", bg = "#95e1d3" },
+  { name = "Red",    bg = "#ff6b6b" },
+  { name = "Blue",   bg = "#4ecdc4" },
+  { name = "Green",  bg = "#95e1d3" },
   { name = "Yellow", bg = "#fce38a" },
   { name = "Purple", bg = "#c44569" },
   { name = "Orange", bg = "#f8b500" },
-  { name = "Pink", bg = "#ff9ff3" },
-  { name = "Gray", bg = "#95a5a6" },
-  { name = "Clear", bg = nil }, -- Special brush to clear highlighting
+  { name = "Pink",   bg = "#ff9ff3" },
+  { name = "Gray",   bg = "#95a5a6" },
+  { name = "Clear",  bg = nil }, -- Special brush to clear highlighting
 }
 
 -- Plugin configuration
 local config = {
   brushes = default_brushes,
-  namespace = vim.api.nvim_create_namespace("painter"),
+  namespace = vim.api.nvim_create_namespace("paint"),
   current_brush = default_brushes[1], -- Default to first brush (Red)
 }
 
 -- Setup function for plugin configuration
 function M.setup(opts)
   opts = opts or {}
-  
+
   -- Merge user brushes with defaults
   if opts.brushes then
     config.brushes = opts.brushes
   end
-  
-  -- Create the Paint command
+
   vim.api.nvim_create_user_command("Paint", function(args)
     M.paint_selection(args.line1, args.line2)
   end, {
     range = true,
     desc = "Paint visual selection with current brush"
   })
-  
-  -- Create PaintSelect command to change current brush
+
   vim.api.nvim_create_user_command("PaintSelect", function()
     M.select_brush()
   end, {
     desc = "Select current brush for painting"
   })
-  
-  -- Create PaintClear command to clear all highlighting
+
   vim.api.nvim_create_user_command("PaintClear", function()
-    M.clear_all()
+    M.clear()
   end, {
-    desc = "Clear all painter highlighting"
+    desc = "Clear painting"
   })
 end
 
--- Function to select a brush
 function M.select_brush()
   -- Create brush selection options
   local brush_names = {}
   for i, brush in ipairs(config.brushes) do
     table.insert(brush_names, brush.name)
   end
-  
+
   -- Use vim.ui.select to choose a brush
   vim.ui.select(brush_names, {
     prompt = "Select brush:",
@@ -68,7 +63,7 @@ function M.select_brush()
     if not choice then
       return -- User cancelled
     end
-    
+
     -- Find the selected brush
     for _, brush in ipairs(config.brushes) do
       if brush.name == choice then
@@ -84,20 +79,20 @@ end
 function M.paint_selection(line1, line2)
   -- Get current buffer
   local bufnr = vim.api.nvim_get_current_buf()
-  
+
   -- Use the current brush directly
   local selected_brush = config.current_brush
-  
+
   -- Check if we have a visual selection or just cursor position
   local mode = vim.fn.mode()
   local has_visual_selection = mode == 'v' or mode == 'V' or mode == '\22'
-  
+
   if not has_visual_selection and line1 == line2 then
     -- No visual selection, paint only at cursor position
     local cursor = vim.api.nvim_win_get_cursor(0)
-    local row = cursor[1] - 1  -- Convert to 0-based
+    local row = cursor[1] - 1 -- Convert to 0-based
     local col = cursor[2]
-    
+
     -- Paint just the character under the cursor
     M.paint_range(bufnr, row, col, row, col + 1, selected_brush)
   else
@@ -105,13 +100,13 @@ function M.paint_selection(line1, line2)
     local start_pos = vim.fn.getpos("'<")
     local end_pos = vim.fn.getpos("'>")
     local visual_mode = vim.fn.visualmode()
-    
+
     -- Convert to 0-based indexing
     local start_row = start_pos[2] - 1
     local start_col = start_pos[3] - 1
     local end_row = end_pos[2] - 1
     local end_col = end_pos[3] - 1
-    
+
     -- Handle different visual modes
     if visual_mode == 'v' then
       -- Character-wise visual mode
@@ -126,7 +121,7 @@ function M.paint_selection(line1, line2)
       -- Block-wise visual mode
       local min_col = math.min(start_col, end_col)
       local max_col = math.max(start_col, end_col) + 1
-      
+
       for row = start_row, end_row do
         M.paint_range(bufnr, row, min_col, row, max_col, selected_brush)
       end
@@ -149,20 +144,20 @@ function M.paint_range(bufnr, start_row, start_col, end_row, end_col, brush)
     -- Create highlight group for this brush if it doesn't exist
     local hl_group = "Painter" .. brush.name
     vim.api.nvim_set_hl(0, hl_group, { bg = brush.bg })
-    
+
     -- Apply highlighting using vim.hl.range
-    vim.hl.range(bufnr, config.namespace, hl_group, 
-                 { start_row, start_col }, 
-                 { end_row, end_col }, 
-                 { inclusive = false })
+    vim.hl.range(bufnr, config.namespace, hl_group,
+      { start_row, start_col },
+      { end_row, end_col },
+      { inclusive = false })
   end
 end
 
 -- Function to clear all painter highlighting
-function M.clear_all()
+function M.clear()
   local bufnr = vim.api.nvim_get_current_buf()
   vim.api.nvim_buf_clear_namespace(bufnr, config.namespace, 0, -1)
-  vim.notify("Cleared all painter highlighting", vim.log.levels.INFO)
+  vim.notify("Cleared paint", vim.log.levels.INFO)
 end
 
 -- Function to add custom brushes
