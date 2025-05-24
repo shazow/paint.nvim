@@ -1,15 +1,3 @@
--- Sonnet 4 prompt:
--- > Write me a simple nvim lua plugin for "painting" the background of selected visual blocks in red
--- ...
--- > That's great. Let's make the following changes:
--- > 1. Rename it to "Painter" or painter.nvim
--- > 2. Add support for painting the character under the cursor if not in visual selection mode.
--- > 3. Add a command to select different brushes (colours)
--- ...!
--- > Make the Paint command work so that I can select a visual block and do :'<,'>Paint
-
--- Neovim plugin for painting text with different colored brushes
-
 -- painter.nvim
 -- Neovim plugin for painting text with different colored brushes
 
@@ -37,6 +25,11 @@ local brushes = {
   gray = { bg = '#888888', fg = '#ffffff' },
   white = { bg = '#ffffff', fg = '#000000' }
 }
+--
+-- Get current highlight group name
+local function get_current_hl_group()
+  return 'Painter' .. current_brush:gsub("^%l", string.upper)
+end
 
 -- Create highlight groups for all brushes
 local function setup_highlights()
@@ -46,22 +39,52 @@ local function setup_highlights()
   end
 end
 
--- Get current highlight group name
-local function get_current_hl_group()
-  return 'Painter' .. current_brush:gsub("^%l", string.upper)
+-- Convert virtual column to actual column for a given line
+local function vcol_to_col(bufnr, line_num, vcol)
+  local line = vim.api.nvim_buf_get_lines(bufnr, line_num, line_num + 1, false)[1] or ""
+  local col = 0
+  local current_vcol = 0
+
+  for i = 1, #line do
+    local char = line:sub(i, i)
+    if char == '\t' then
+      -- Tab expands to next multiple of tabstop
+      local tabstop = vim.bo[bufnr].tabstop or 8
+      current_vcol = math.floor(current_vcol / tabstop) * tabstop + tabstop
+    else
+      current_vcol = current_vcol + 1
+    end
+
+    if current_vcol >= vcol then
+      return i - 1 -- Convert to 0-indexed
+    end
+  end
+
+  -- If we've gone past the end of the line, return the line length
+  return #line
 end
 
 -- Get visual selection range
 local function get_visual_selection()
   local start_pos = vim.fn.getpos("'<")
   local end_pos = vim.fn.getpos("'>")
+  local mode = vim.fn.mode()
 
-  return {
+  local selection = {
     start_line = start_pos[2] - 1, -- Convert to 0-indexed
     start_col = start_pos[3] - 1,
     end_line = end_pos[2] - 1,
-    end_col = end_pos[3]
+    end_col = end_pos[3],
+    is_visual_block = mode == '\22' -- Ctrl-V visual block mode
   }
+
+  -- For visual block mode, we need to handle virtual columns
+  if selection.is_visual_block then
+    selection.start_vcol = vim.fn.virtcol("'<") - 1
+    selection.end_vcol = vim.fn.virtcol("'>")
+  end
+
+  return selection
 end
 
 -- Get cursor position for single character painting
@@ -79,63 +102,91 @@ end
 local function paint_region(selection, bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
 
-  -- Store the painted region
+  local hl_group = get_current_hl_group()
+  local extmark_ids = {}
+
+  -- Handle visual block mode differently
+  if selection.is_visual_block then
+    -- Visual block mode - paint a rectangular block
+    for line_num = selection.start_line, selection.end_line do
+      local line = vim.api.nvim_buf_get_lines(bufnr, line_num, line_num + 1, false)[1] or ""
+
+      -- Convert virtual columns to actual columns for this line
+      local start_col = vcol_to_col(bufnr, line_num, selection.start_vcol)
+      local end_col = vcol_to_col(bufnr, line_num, selection.end_vcol)
+
+      -- Ensure we don't go beyond the line length
+      start_col = math.min(start_col, #line)
+      end_col = math.min(end_col, #line)
+
+      -- Only highlight if there's content to highlight
+      if start_col < end_col then
+        local extmark_id = vim.api.nvim_buf_set_extmark(bufnr, ns_id, line_num, start_col, {
+          end_row = line_num,
+          end_col = end_col,
+          hl_group = hl_group,
+        })
+        table.insert(extmark_ids, extmark_id)
+      end
+    end
+  elseif selection.start_line == selection.end_line then
+    -- Single line selection
+    local line = vim.api.nvim_buf_get_lines(bufnr, selection.start_line, selection.start_line + 1, false)[1] or ""
+    local end_col = math.min(selection.end_col, #line)
+
+    if selection.start_col < end_col then
+      local extmark_id = vim.api.nvim_buf_set_extmark(bufnr, ns_id, selection.start_line, selection.start_col, {
+        end_row = selection.end_line,
+        end_col = end_col,
+        hl_group = hl_group,
+      })
+      table.insert(extmark_ids, extmark_id)
+    end
+  else
+    -- Multi-line selection - handle partial lines properly
+    local lines = vim.api.nvim_buf_get_lines(bufnr, selection.start_line, selection.end_line + 1, false)
+
+    for i, line in ipairs(lines) do
+      local line_num = selection.start_line + i - 1
+      local start_col, end_col
+
+      if i == 1 then
+        -- First line: start from selection start column
+        start_col = selection.start_col
+        end_col = #line
+      elseif i == #lines then
+        -- Last line: end at selection end column
+        start_col = 0
+        end_col = math.min(selection.end_col, #line)
+      else
+        -- Middle lines: full line
+        start_col = 0
+        end_col = #line
+      end
+
+      -- Only highlight if there's content to highlight
+      if start_col < end_col then
+        local extmark_id = vim.api.nvim_buf_set_extmark(bufnr, ns_id, line_num, start_col, {
+          end_row = line_num,
+          end_col = end_col,
+          hl_group = hl_group,
+        })
+        table.insert(extmark_ids, extmark_id)
+      end
+    end
+  end
+
+  -- Store the painted region with extmark IDs
   table.insert(painted_regions, {
     bufnr = bufnr,
     start_line = selection.start_line,
     start_col = selection.start_col,
     end_line = selection.end_line,
     end_col = selection.end_col,
-    brush = current_brush
+    brush = current_brush,
+    extmark_ids = extmark_ids,
+    is_visual_block = selection.is_visual_block or false
   })
-
-  local hl_group = get_current_hl_group()
-
-  -- Apply highlight
-  if selection.start_line == selection.end_line then
-    -- Single line selection
-    vim.api.nvim_buf_add_highlight(
-      bufnr,
-      ns_id,
-      hl_group,
-      selection.start_line,
-      selection.start_col,
-      selection.end_col
-    )
-  else
-    -- Multi-line selection
-    -- First line
-    vim.api.nvim_buf_add_highlight(
-      bufnr,
-      ns_id,
-      hl_group,
-      selection.start_line,
-      selection.start_col,
-      -1
-    )
-
-    -- Middle lines
-    for line = selection.start_line + 1, selection.end_line - 1 do
-      vim.api.nvim_buf_add_highlight(
-        bufnr,
-        ns_id,
-        hl_group,
-        line,
-        0,
-        -1
-      )
-    end
-
-    -- Last line
-    vim.api.nvim_buf_add_highlight(
-      bufnr,
-      ns_id,
-      hl_group,
-      selection.end_line,
-      0,
-      selection.end_col
-    )
-  end
 end
 
 -- Paint the current visual selection or character under cursor
@@ -144,15 +195,7 @@ function M.paint(line1, line2)
 
   if line1 and line2 then
     -- Called with range (e.g., :'<,'>Paint)
-    local start_pos = vim.fn.getpos("'<")
-    local end_pos = vim.fn.getpos("'>")
-
-    selection = {
-      start_line = start_pos[2] - 1, -- Convert to 0-indexed
-      start_col = start_pos[3] - 1,
-      end_line = end_pos[2] - 1,
-      end_col = end_pos[3]
-    }
+    selection = get_visual_selection()
     print("Painted range with " .. current_brush .. " brush!")
   else
     -- Called without range - check current mode
@@ -222,6 +265,8 @@ end
 -- Clear all painted regions in current buffer
 function M.clear_paint()
   local bufnr = vim.api.nvim_get_current_buf()
+
+  -- Clear extmarks for this buffer
   vim.api.nvim_buf_clear_namespace(bufnr, ns_id, 0, -1)
 
   -- Remove from storage
@@ -234,9 +279,13 @@ end
 
 -- Clear all painted regions in all buffers
 function M.clear_all_paint()
+  -- Clear extmarks in all buffers
   for _, region in ipairs(painted_regions) do
-    vim.api.nvim_buf_clear_namespace(region.bufnr, ns_id, 0, -1)
+    if vim.api.nvim_buf_is_valid(region.bufnr) then
+      vim.api.nvim_buf_clear_namespace(region.bufnr, ns_id, 0, -1)
+    end
   end
+
   painted_regions = {}
   print("Cleared all paint in all buffers!")
 end
