@@ -18,6 +18,7 @@ local default_brushes = {
 local config = {
   brushes = default_brushes,
   namespace = vim.api.nvim_create_namespace("painter"),
+  current_brush = default_brushes[1], -- Default to first brush (Red)
 }
 
 -- Setup function for plugin configuration
@@ -34,7 +35,14 @@ function M.setup(opts)
     M.paint_selection(args.line1, args.line2)
   end, {
     range = true,
-    desc = "Paint visual selection with chosen color"
+    desc = "Paint visual selection with current brush"
+  })
+  
+  -- Create PaintSelect command to change current brush
+  vim.api.nvim_create_user_command("PaintSelect", function()
+    M.select_brush()
+  end, {
+    desc = "Select current brush for painting"
   })
   
   -- Create PaintClear command to clear all highlighting
@@ -45,11 +53,8 @@ function M.setup(opts)
   })
 end
 
--- Function to paint a selection
-function M.paint_selection(line1, line2)
-  -- Get current buffer
-  local bufnr = vim.api.nvim_get_current_buf()
-  
+-- Function to select a brush
+function M.select_brush()
   -- Create brush selection options
   local brush_names = {}
   for i, brush in ipairs(config.brushes) do
@@ -58,30 +63,48 @@ function M.paint_selection(line1, line2)
   
   -- Use vim.ui.select to choose a brush
   vim.ui.select(brush_names, {
-    prompt = "Choose a brush:",
+    prompt = "Select brush:",
   }, function(choice)
     if not choice then
       return -- User cancelled
     end
     
     -- Find the selected brush
-    local selected_brush = nil
     for _, brush in ipairs(config.brushes) do
       if brush.name == choice then
-        selected_brush = brush
+        config.current_brush = brush
+        vim.notify("Selected brush: " .. brush.name, vim.log.levels.INFO)
         break
       end
     end
+  end)
+end
+
+-- Function to paint a selection or cursor position
+function M.paint_selection(line1, line2)
+  -- Get current buffer
+  local bufnr = vim.api.nvim_get_current_buf()
+  
+  -- Use the current brush directly
+  local selected_brush = config.current_brush
+  
+  -- Check if we have a visual selection or just cursor position
+  local mode = vim.fn.mode()
+  local has_visual_selection = mode == 'v' or mode == 'V' or mode == '\22'
+  
+  if not has_visual_selection and line1 == line2 then
+    -- No visual selection, paint only at cursor position
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local row = cursor[1] - 1  -- Convert to 0-based
+    local col = cursor[2]
     
-    if not selected_brush then
-      vim.notify("Brush not found: " .. choice, vim.log.levels.ERROR)
-      return
-    end
-    
-    -- Get visual selection details
+    -- Paint just the character under the cursor
+    M.paint_range(bufnr, row, col, row, col + 1, selected_brush)
+  else
+    -- We have a visual selection, handle different modes
     local start_pos = vim.fn.getpos("'<")
     local end_pos = vim.fn.getpos("'>")
-    local mode = vim.fn.visualmode()
+    local visual_mode = vim.fn.visualmode()
     
     -- Convert to 0-based indexing
     local start_row = start_pos[2] - 1
@@ -90,16 +113,16 @@ function M.paint_selection(line1, line2)
     local end_col = end_pos[3] - 1
     
     -- Handle different visual modes
-    if mode == 'v' then
+    if visual_mode == 'v' then
       -- Character-wise visual mode
       M.paint_range(bufnr, start_row, start_col, end_row, end_col + 1, selected_brush)
-    elseif mode == 'V' then
+    elseif visual_mode == 'V' then
       -- Line-wise visual mode
       for row = start_row, end_row do
         local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
         M.paint_range(bufnr, row, 0, row, #line, selected_brush)
       end
-    elseif mode == '\22' then -- Ctrl-V (block visual mode)
+    elseif visual_mode == '\22' then -- Ctrl-V (block visual mode)
       -- Block-wise visual mode
       local min_col = math.min(start_col, end_col)
       local max_col = math.max(start_col, end_col) + 1
@@ -114,7 +137,7 @@ function M.paint_selection(line1, line2)
         M.paint_range(bufnr, row, 0, row, #line, selected_brush)
       end
     end
-  end)
+  end
 end
 
 -- Function to paint a specific range
@@ -145,6 +168,11 @@ end
 -- Function to add custom brushes
 function M.add_brush(name, bg_color)
   table.insert(config.brushes, { name = name, bg = bg_color })
+end
+
+-- Function to get current brush
+function M.get_current_brush()
+  return config.current_brush
 end
 
 -- Function to get current brushes
