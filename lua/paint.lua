@@ -30,7 +30,7 @@ function M.setup(opts)
   end
 
   vim.api.nvim_create_user_command("Paint", function(args)
-    M.paint_selection(args.line1, args.line2)
+    M.paint_selection()
   end, {
     range = true,
     desc = "Paint visual selection with current brush"
