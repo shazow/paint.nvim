@@ -6,28 +6,56 @@ Paint the background of any visual selection or under your cursor.
 
 ## Usage
 
-Setup
+### Setup
 
 ```lua
 require("paint").setup({
-  -- Optional: Set your own brushes...
+  -- Optional: Override the default brushes
   brushes = {
-    { name = "Mint",     bg = "#00f5a0" },
+    { name = "Red",    bg = "#ff6b6b" },
+    { name = "Blue",   bg = "#4ecdc4" },
+    { name = "Green",  bg = "#95e1d3" },
+    { name = "Yellow", bg = "#fce38a" },
+    { name = "Purple", bg = "#c44569" },
+    { name = "Orange", bg = "#f8b500" },
+  },
+
+  -- Optional: Add extra brushes to the default set
+  extra_brushes = {
+    { name = "Mint",     bg = "#00f5a0", fg = "#000000" },
     { name = "Lavender", bg = "#d8bfd8" },
-  }
+  },
 })
 ```
 
-Commands
+### Commands
 
 - `:Paint`
 - `:PaintSelect`
 - `:PaintClear`
 
-Mappings
+### Mappings
 
 ```lua
 vim.keymap.set("v", "<leader>p", ":Paint<CR>", { desc = "Paint selection" })
 vim.keymap.set("n", "<leader>ps", ":PaintSelect<CR>", { desc = "Select paint brush" })
 vim.keymap.set("n", "<leader>pc", ":PaintClear<CR>", { desc = "Clear paint" })
 ```
+
+### API
+
+```lua
+local Paint = require("paint")
+
+Paint.paint() -- Paint the current cursor or selection
+Paint.select_brush() -- Show selection UI
+Paint.select_brush({ name = "Custom", fg = "#fffffff" }) -- Set your own brush
+Paint.clear()
+Paint.add_brush({ name = "Lavender", bg = "#d8bfd8" })
+Paint.brushes() -- Return the saved brushes
+Paint.selected_brush() -- Return the current brush
+```
+
+## License
+
+MIT
